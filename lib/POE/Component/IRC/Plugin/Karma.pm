@@ -1,6 +1,6 @@
 package POE::Component::IRC::Plugin::Karma;
 
-# ABSTRACT: Handles the karma commands for your bot
+# ABSTRACT: A POE::Component::IRC plugin that keeps track of karma
 
 use Moose;
 use DBI;
@@ -12,12 +12,12 @@ use POE::Component::IRC::Common qw( parse_user );
 # so it can be used by other plugins that need to store data
 # then we can code plugin-seen and plugin-awaymsg stuff and have it use the datastore
 # make it as braindead ez to use as the bot-basicbot system of saving data :)
+# Getty wants me to have it use dbic which would make it even more awesome...
 
 # TODO do we need a help system? "bot: karma" should return whatever...
 
-# TODO add "highkarma" and "lowkarma" for the highest+lowest karma'd stuff
-
-use Data::Dumper::Concise;
+# TODO do we need a botsnack thingy? bot++ bot--
+# seen in bot-basicbot-karma where a user tries to karma the bot itself and it replies with something
 
 =attr addressed
 
@@ -97,7 +97,7 @@ has 'extrastats' => (
 
 =attr sqlite
 
-Set the path to the sqlite database which will hold the karma stats.
+Set the path to the SQLite database which will hold the karma stats.
 
 BEWARE: In the future this might be changed to a more "fancy" system!
 
@@ -114,7 +114,7 @@ has 'sqlite' => (
 sub PCI_register {
 	my ( $self, $irc ) = @_;
 
-	$irc->plugin_register( $self, 'SERVER', qw( public msg ) );
+	$irc->plugin_register( $self, 'SERVER', qw( public msg ctcp_action ) );
 
 	# setup the db
 	$self->_setup_dbi( $self->_get_dbi );
@@ -126,6 +126,27 @@ sub PCI_unregister {
 	my ( $self, $irc ) = @_;
 
 	return 1;
+}
+
+sub S_ctcp_action {
+	my ( $self, $irc ) = splice @_, 0 , 2;
+	my ( $nick, $user, $host ) = parse_user( ${ $_[0] } );
+	my $channel = ${ $_[1] }->[0];
+	my $msg = ${ $_[2] };
+
+	my $reply = $self->_karma(
+		nick	=> $nick,
+		user	=> $user,
+		host	=> $host,
+		where	=> $channel,
+		str	=> ${ $_[2] },
+	);
+
+	if ( defined $reply ) {
+		$irc->yield( 'privmsg', $channel, $nick . ': ' . $reply );
+	}
+
+	return PCI_EAT_NONE;
 }
 
 sub S_public {
@@ -171,7 +192,7 @@ sub S_msg {
 		nick	=> $nick,
 		user	=> $user,
 		host	=> $host,
-		where	=> 'msg',
+		where	=> 'privmsg',
 		str	=> ${ $_[2] },
 	);
 
@@ -186,9 +207,26 @@ sub _karma {
 	my( $self, %args ) = @_;
 
 	# many different ways to get karma...
-	if ( $args{'str'} =~ /^\s*(?:karma|score)\s*(.+)$/i ) {
+	if ( $args{'str'} =~ /^\s*karma\s*(.+)$/i ) {
 		# return the karma of the requested string
 		return $self->_get_karma( $1 );
+
+	# TODO are those worth it to implement?
+#	} elsif ( $args{'str'} =~ /^\s*karmahigh\s*$/i ) {
+#		# return the list of highest karma'd words
+#		return $self->_get_karmahigh;
+#	} elsif ( $args{'str'} =~ /^\s*karmalow\s*$/i ) {
+#		# return the list of lowest karma'd words
+#		return $self->_get_karmalow;
+#	} elsif ( $args{'str'} =~ /^\s*karmalast\s*(.+)$/ ) {
+#		# returns the list of last karma contributors
+#		my $karma = $1;
+#
+#		# clean the karma
+#		$karma =~ s/^\s+//;
+#		$karma =~ s/\s+$//;
+#
+#		return $self->_get_karmalast( $karma );
 
 	# TODO parse multi-karma in one string
 	# <you> hey this++ is super awesome++ # rockin!
@@ -230,18 +268,23 @@ sub _get_karma {
 
 	# Get the score from the DB
 	my $dbh = $self->_get_dbi;
-	my $sth = $dbh->prepare_cached( 'SELECT count(up) AS up, count(down) AS down FROM karma WHERE karma = ?' ) or die $dbh->errstr;
+	my $sth = $dbh->prepare_cached( 'SELECT mode, count(mode) AS count FROM karma WHERE karma = ? GROUP BY mode' ) or die $dbh->errstr;
 	$sth->execute( $karma ) or die $sth->errstr;
-	my $row = $sth->fetchrow_arrayref;
+	my( $up, $down ) = ( 0, 0 );
+	while ( my $row = $sth->fetchrow_arrayref ) {
+		if ( $row->[0] == 1 ) {
+			$up = $row->[1];
+		} else {
+			$down = $row->[1];
+		}
+	}
 	$sth->finish;
 
-	my $up = $row->[0];
-	my $down = $row->[1];
 	my $score = $up - $down;
 	$score = undef if ( $up == 0 and $down == 0 );
 
 	my $result;
-	if ( ! defined $score) {
+	if ( ! defined $score ) {
 		$result = "'$karma' has no karma";
 	} else {
 		if ( $score == 0 ) {
@@ -254,11 +297,11 @@ sub _get_karma {
 			$result = "'$karma' has karma of $score";
 			if ( $self->extrastats ) {
 				if ( $up and $down ) {
-					$result .= " [ ($up)++ and ($down)-- votes ]";
+					$result .= " [ $up ++ and $down -- votes ]";
 				} elsif ( $up ) {
-					$result .= " [ ($up)++ votes ]";
+					$result .= " [ $up ++ votes ]";
 				} else {
-					$result .= " [ ($down)-- votes ]";
+					$result .= " [ $down -- votes ]";
 				}
 			}
 		}
@@ -275,14 +318,13 @@ sub _add_karma {
 
 	# insert it into the DB!
 	my $dbh = $self->_get_dbi;
-	my $sth = $dbh->prepare_cached( 'INSERT INTO karma ( who, "where", timestamp, karma, up, down, comment, string ) VALUES ( ?, ?, ?, ?, ?, ?, ?, ? )' );
+	my $sth = $dbh->prepare_cached( 'INSERT INTO karma ( who, "where", timestamp, karma, mode, comment, said ) VALUES ( ?, ?, ?, ?, ?, ?, ? )' );
 	$sth->execute(
 		$args{'who'},
 		$args{'where'},
 		scalar time,
 		$args{'karma'},
-		( $args{'op'} eq '++' ? 1 : undef ),
-		( $args{'op'} eq '--' ? 1 : undef ),
+		( $args{'op'} eq '++' ? 1 : 0 ),
 		$args{'comment'},
 		$args{'str'},
 	) or die $dbh->errstr;
@@ -296,7 +338,8 @@ sub _get_dbi {
 
 	my $dbh = DBI->connect_cached( "dbi:SQLite:dbname=" . $self->sqlite, '', '' );
 
-	# TODO should we set synchronous=off?
+	# set some SQLite tweaks
+	$dbh->do( 'PRAGMA synchronous = OFF' ) or die $dbh->errstr;
 
 	return $dbh;
 }
@@ -304,22 +347,22 @@ sub _get_dbi {
 sub _setup_dbi {
 	my( $self, $dbh ) = @_;
 
+	# TODO <dngor> Apocalypse: You can select mode, count(mode) from karma group by mode ... it'll return a ++ and -- count, which you'll have to add yourself for the overall score.
+
 	# create the table itself
 	$dbh->do( 'CREATE TABLE IF NOT EXISTS karma ( ' .
 		'who TEXT NOT NULL, ' .			# who made the karma
 		'"where" TEXT NOT NULL, ' .		# privmsg or in chan
 		'timestamp INTEGER NOT NULL, ' .	# timestamp of karma
 		'karma TEXT NOT NULL, ' .		# the stuff being karma'd
-		'up BOOL, ' .				# 1 if it was a ++, NULL otherwise
-		'down BOOL, ' .				# 1 if it was a --, NULL otherwise
-		'comment TEXT, ' .			# the comment given with the karma
-		'string TEXT NOT NULL ' .		# the full text the user said
+		'mode BOOL, ' .				# 1 if it was a ++, 0 if it was a --
+		'comment TEXT, ' .			# the comment given with the karma ( optional )
+		'said TEXT NOT NULL ' .			# the full text the user said
 	')' ) or die $dbh->errstr;
 
 	# create the indexes to speed up searching
 	$dbh->do( 'CREATE INDEX IF NOT EXISTS karma_karma ON karma ( karma )' ) or die $dbh->errstr;
-	$dbh->do( 'CREATE INDEX IF NOT EXISTS karma_up ON karma ( up )' ) or die $dbh->errstr;
-	$dbh->do( 'CREATE INDEX IF NOT EXISTS karma_down ON karma ( down )' ) or die $dbh->errstr;
+	$dbh->do( 'CREATE INDEX IF NOT EXISTS karma_mode ON karma ( mode )' ) or die $dbh->errstr;
 
 	return;
 }
@@ -330,17 +373,47 @@ __PACKAGE__->meta->make_immutable;
 
 =pod
 
-=for Pod::Coverage PCI_register PCI_unregister S_msg S_public
+=for Pod::Coverage PCI_register PCI_unregister S_msg S_public S_ctcp_action
+
+=head1 SYNOPSIS
+
+	# A simple bot to showcase karma capabilities
+	use strict; use warnings;
+
+	use POE qw( Component::IRC Component::IRC::Plugin::Karma Component::IRC::Plugin::AutoJoin );
+
+	# Create a new PoCo-IRC object
+	my $irc = POE::Component::IRC->spawn(
+		nick => 'karmabot',
+		ircname => 'karmabot',
+		server  => 'localhost',
+	) or die "Oh noooo! $!";
+
+	# Setup our plugins + tell the bot to connect!
+	$irc->plugin_add( 'AutoJoin', POE::Component::IRC::Plugin::AutoJoin->new( Channels => [ '#test' ] ));
+	$irc->plugin_add( 'Karma', POE::Component::IRC::Plugin::Karma->new );
+	$irc->yield( connect => { } );
+
+	POE::Kernel->run;
 
 =head1 DESCRIPTION
 
-This plugin uses L<Perl::MinimumVersion> to automatically find the minimum version of Perl required
-for your dist and adds it to the prereqs.
+This plugin keeps track of karma ( perl++ or perl-- ) said on IRC and provides an interface to retrieve statistics.
 
-	# In your dist.ini:
-	[MinimumPerl]
+The bot will watch for karma in channel messages, privmsgs and ctcp actions.
+
+=head2 IRC USAGE
+
+=for :list
+* <thing>++ # <comment>
+Increases the karma for <thing> ( with optional comment )
+* <thing>-- # <comment>
+Decreases the karma for <thing> ( with optional comment )
+* karma <thing>
+Replies with the karma rating for <thing>
 
 =head1 SEE ALSO
-Dist::Zilla
+POE::Component::IRC
+Bot::BasicBot::Pluggable::Module::Karma
 
 =cut

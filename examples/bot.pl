@@ -1,46 +1,30 @@
 # A simple bot to showcase karma capabilities
 use strict; use warnings;
 
-use POE qw( Component::IRC Component::IRC::Plugin::Karma Component::IRC::Plugin::AutoJoin Component::IRC::Plugin::Connector );
+use POE qw( Component::IRC Component::IRC::Plugin::Karma Component::IRC::Plugin::AutoJoin );
 
-my $nickname = 'Flibble' . $$;
-my $ircname  = 'Flibble the Sailor Bot';
-my $server   = '192.168.0.200';
+# Create a new PoCo-IRC object
+my $irc = POE::Component::IRC->spawn(
+	nick => 'karmabot',
+	ircname => 'karmabot',
+	server  => '192.168.0.200',
+) or die "Oh noooo! $!";
 
-my @channels = ('#test');
-
+# Create our own session
 POE::Session->create(
 	package_states => [
-		main => [ qw( _default _start _child ) ],
+		main => [ qw( _default _start ) ],
 	],
 );
 
-$poe_kernel->run();
+POE::Kernel->run;
 
 sub _start {
-	my $heap = $_[HEAP];
-
-	# We create a new PoCo-IRC object
-	my $irc = POE::Component::IRC->spawn(
-		nick => $nickname,
-		ircname => $ircname,
-		server  => $server,
-	) or die "Oh noooo! $!";
-
-	# store the irc object
-	$heap->{irc} = $irc;
-
-	# Setup our plugins
-	$irc->plugin_add( 'AutoJoin', POE::Component::IRC::Plugin::AutoJoin->new( Channels => \@channels ));
-	$irc->plugin_add( 'Connector', POE::Component::IRC::Plugin::Connector->new );
+	# Setup our plugins + tell the bot to connect!
+	$irc->plugin_add( 'AutoJoin', POE::Component::IRC::Plugin::AutoJoin->new( Channels => [ '#test' ] ));
 	$irc->plugin_add( 'Karma', POE::Component::IRC::Plugin::Karma->new( extrastats => 1 ) );
-
 	$irc->yield( register => 'all' );
 	$irc->yield( connect => { } );
-	return;
-}
-
-sub _child {
 	return;
 }
 
