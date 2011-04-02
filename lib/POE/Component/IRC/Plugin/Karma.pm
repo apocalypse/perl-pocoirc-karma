@@ -143,7 +143,7 @@ sub S_ctcp_action {
 	);
 
 	if ( defined $reply ) {
-		$irc->yield( 'privmsg', $channel, $nick . ': ' . $reply );
+		$irc->yield( 'privmsg', $channel, $nick . ': ' . $_ ) for @$reply;
 	}
 
 	return PCI_EAT_NONE;
@@ -173,10 +173,12 @@ sub S_public {
 		);
 
 		if ( defined $reply ) {
-			if ( $self->privmsg ) {
-				$irc->yield( 'privmsg', $nick, $reply );
-			} else {
-				$irc->yield( 'privmsg', $channel, $nick . ': ' . $reply );
+			foreach my $r ( @$reply ) {
+				if ( $self->privmsg ) {
+					$irc->yield( 'privmsg', $nick, $r );
+				} else {
+					$irc->yield( 'privmsg', $channel, $nick . ': ' . $r );
+				}
 			}
 		}
 	}
@@ -197,7 +199,7 @@ sub S_msg {
 	);
 
 	if ( defined $reply ) {
-		$irc->yield( 'privmsg', $nick, $reply );
+		$irc->yield( 'privmsg', $nick, $_ ) for @$reply;
 	}
 
 	return PCI_EAT_NONE;
@@ -209,15 +211,15 @@ sub _karma {
 	# many different ways to get karma...
 	if ( $args{'str'} =~ /^\s*karma\s*(.+)$/i ) {
 		# return the karma of the requested string
-		return $self->_get_karma( $1 );
+		return [ $self->_get_karma( $1 ) ];
 
 	# TODO are those worth it to implement?
 #	} elsif ( $args{'str'} =~ /^\s*karmahigh\s*$/i ) {
 #		# return the list of highest karma'd words
-#		return $self->_get_karmahigh;
+#		return [ $self->_get_karmahigh ];
 #	} elsif ( $args{'str'} =~ /^\s*karmalow\s*$/i ) {
 #		# return the list of lowest karma'd words
-#		return $self->_get_karmalow;
+#		return [ $self->_get_karmalow ];
 #	} elsif ( $args{'str'} =~ /^\s*karmalast\s*(.+)$/ ) {
 #		# returns the list of last karma contributors
 #		my $karma = $1;
@@ -226,38 +228,41 @@ sub _karma {
 #		$karma =~ s/^\s+//;
 #		$karma =~ s/\s+$//;
 #
-#		return $self->_get_karmalast( $karma );
+#		return [ $self->_get_karmalast( $karma ) ];
 
-	# TODO parse multi-karma in one string
-	# <you> hey this++ is super awesome++ # rockin!
-	} elsif ( $args{'str'} =~ /\(([^\)]+)\)(\+\+|--)\s*(\#.+)?/ or $args{'str'} =~ /(\w+)(\+\+|--)\s*(\#.+)?/ ) {
-		# karma'd something ( with a comment? )
-		my( $karma, $op, $comment ) = ( $1, $2, $3 );
-
-		# clean the karma
-		$karma =~ s/^\s+//;
-		$karma =~ s/\s+$//;
-
-		# Is it a selfkarma?
-		if ( ! $self->selfkarma and lc( $karma ) eq lc( $args{'nick'} ) ) {
-			return;
-		} else {
-			# clean the comment
-			$comment =~ s/^\s*\#\s*// if defined $comment;
-
-			$self->_add_karma(
-				karma	=> $karma,
-				op	=> $op,
-				comment	=> $comment,
-				%args,
-			);
-
-			if ( $self->replykarma ) {
-				return $self->_get_karma( $karma );
-			}
-		}
 	} else {
-		# not a karma command
+		# get the list of karma matches
+		# TODO still needs a bit more work, see t/parsing.t
+		my @matches = ( $args{'str'} =~ /(\([^\)]+\)|\w+)(\+\+|--)\s*(\#.+)?/g );
+		if ( @matches ) {
+			my @replies;
+			while ( my( $karma, $op, $comment ) = splice( @matches, 0, 3 ) ) {
+				# clean the karma of spaces and () as we had to capture them
+				$karma =~ s/^[\s\(]+//;
+				$karma =~ s/[\s\)]+$//;
+
+				# Is it a selfkarma?
+				if ( ! $self->selfkarma and lc( $karma ) eq lc( $args{'nick'} ) ) {
+					next;
+				} else {
+					# clean the comment
+					$comment =~ s/^\s*\#\s*// if defined $comment;
+
+					$self->_add_karma(
+						karma	=> $karma,
+						op	=> $op,
+						comment	=> $comment,
+						%args,
+					);
+
+					if ( $self->replykarma ) {
+						push( @replies, $self->_get_karma( $karma ) );
+					}
+				}
+			}
+
+			return \@replies;
+		}
 	}
 
 	return;
@@ -347,15 +352,13 @@ sub _get_dbi {
 sub _setup_dbi {
 	my( $self, $dbh ) = @_;
 
-	# TODO <dngor> Apocalypse: You can select mode, count(mode) from karma group by mode ... it'll return a ++ and -- count, which you'll have to add yourself for the overall score.
-
 	# create the table itself
 	$dbh->do( 'CREATE TABLE IF NOT EXISTS karma ( ' .
 		'who TEXT NOT NULL, ' .			# who made the karma
 		'"where" TEXT NOT NULL, ' .		# privmsg or in chan
-		'timestamp INTEGER NOT NULL, ' .	# timestamp of karma
+		'timestamp INTEGER NOT NULL, ' .	# unix timestamp of karma
 		'karma TEXT NOT NULL, ' .		# the stuff being karma'd
-		'mode BOOL, ' .				# 1 if it was a ++, 0 if it was a --
+		'mode BOOL NOT NULL, ' .		# 1 if it was a ++, 0 if it was a --
 		'comment TEXT, ' .			# the comment given with the karma ( optional )
 		'said TEXT NOT NULL ' .			# the full text the user said
 	')' ) or die $dbh->errstr;

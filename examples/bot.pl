@@ -1,6 +1,6 @@
-# A simple bot to showcase karma capabilities
-use strict; use warnings;
+#!/usr/bin/perl
 
+# A simple bot to showcase karma capabilities
 use POE qw( Component::IRC Component::IRC::Plugin::Karma Component::IRC::Plugin::AutoJoin );
 
 # Create a new PoCo-IRC object
