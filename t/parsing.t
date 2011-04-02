@@ -201,7 +201,7 @@ foreach my $t ( keys %tests ) {
 	$num_tests += 2;
 	foreach my $match ( @{ $tests{ $t } } ) {
 		my $rev_c = $match->{'c'};
-		$rev_c =~ s/\+\+/\-\-/g;
+		$rev_c =~ s/\+\+/\-\-/g if defined $rev_c;
 		push( @{ $tests{ $reverse } }, {
 			'k' => $match->{'k'},
 			'm' => '--',
