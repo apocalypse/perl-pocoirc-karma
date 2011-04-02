@@ -19,6 +19,10 @@ use POE::Component::IRC::Common qw( parse_user );
 # TODO do we need a botsnack thingy? bot++ bot--
 # seen in bot-basicbot-karma where a user tries to karma the bot itself and it replies with something
 
+# TODO <@Hinrik> maybe you should separate the parsing from the IRC plugin
+# <@Hinrik> so there'd be a Karma module which people could apply to any text (e.g. IRC logs)
+# <@Hinrik> and also for people like buu who use an entirely different kind of IRC plugin
+
 =attr addressed
 
 If this is a true value, the karma commands has to be sent to the bot.
