@@ -2,6 +2,9 @@ Revision history for Perl module {{$dist->name}}
 
 {{$NEXT}}
 
+0.002
+	Released: 2011-04-02 22:59:11 UTC
+
 	Add 'casesens' option to control case-sensitive searching
 	Tweak some sqlite pragma for performance
 
