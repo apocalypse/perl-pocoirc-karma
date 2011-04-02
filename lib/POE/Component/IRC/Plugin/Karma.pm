@@ -330,7 +330,7 @@ sub _add_karma {
 
 	# insert it into the DB!
 	my $dbh = $self->_get_dbi;
-	my $sth = $dbh->prepare_cached( 'INSERT INTO karma ( who, "where", timestamp, karma, mode, comment, said ) VALUES ( ?, ?, ?, ?, ?, ?, ? )' );
+	my $sth = $dbh->prepare_cached( 'INSERT INTO karma ( who, "where", timestamp, karma, mode, comment, said ) VALUES ( ?, ?, ?, ?, ?, ?, ? )' ) or die $dbh->errstr;
 	$sth->execute(
 		$args{'who'},
 		$args{'where'},
@@ -339,7 +339,7 @@ sub _add_karma {
 		( $args{'op'} eq '++' ? 1 : 0 ),
 		$args{'comment'},
 		$args{'str'},
-	) or die $dbh->errstr;
+	) or die $sth->errstr;
 	$sth->finish;
 
 	return;
