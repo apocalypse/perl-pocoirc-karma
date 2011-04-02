@@ -189,6 +189,9 @@ sub _karma {
 	if ( $args{'str'} =~ /^\s*(?:karma|score)\s*(.+)$/i ) {
 		# return the karma of the requested string
 		return $self->_get_karma( $1 );
+
+	# TODO parse multi-karma in one string
+	# <you> hey this++ is super awesome++ # rockin!
 	} elsif ( $args{'str'} =~ /\(([^\)]+)\)(\+\+|--)\s*(\#.+)?/ or $args{'str'} =~ /(\w+)(\+\+|--)\s*(\#.+)?/ ) {
 		# karma'd something ( with a comment? )
 		my( $karma, $op, $comment ) = ( $1, $2, $3 );
