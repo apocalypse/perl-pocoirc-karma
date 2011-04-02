@@ -103,9 +103,12 @@ has 'extrastats' => (
 
 Set the path to the SQLite database which will hold the karma stats.
 
-BEWARE: In the future this might be changed to a more "fancy" system!
+From the L<DBD::SQLite> docs: Although the database is stored in a single file, the directory containing the
+database file must be writable by SQLite because the library will create several temporary files there.
 
 The default is: karma_stats.db
+
+BEWARE: In the future this might be changed to a more "fancy" system!
 
 =cut
 
