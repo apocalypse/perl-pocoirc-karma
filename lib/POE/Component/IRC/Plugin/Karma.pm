@@ -23,6 +23,8 @@ use POE::Component::IRC::Common qw( parse_user );
 # <@Hinrik> so there'd be a Karma module which people could apply to any text (e.g. IRC logs)
 # <@Hinrik> and also for people like buu who use an entirely different kind of IRC plugin
 
+# TODO do we need a warn_selfkarma option so it warns the user trying to karma themselves?
+
 =attr addressed
 
 If this is a true value, the karma commands has to be sent to the bot.
@@ -423,7 +425,7 @@ __PACKAGE__->meta->make_immutable;
 
 	# Setup our plugins + tell the bot to connect!
 	$irc->plugin_add( 'AutoJoin', POE::Component::IRC::Plugin::AutoJoin->new( Channels => [ '#test' ] ));
-	$irc->plugin_add( 'Karma', POE::Component::IRC::Plugin::Karma->new );
+	$irc->plugin_add( 'Karma', POE::Component::IRC::Plugin::Karma->new( extrastats => 1 ) );
 	$irc->yield( connect => { } );
 
 	POE::Kernel->run;
@@ -437,12 +439,16 @@ The bot will watch for karma in channel messages, privmsgs and ctcp actions.
 =head2 IRC USAGE
 
 =for :list
-* <thing>++ # <comment>
+* thing++ # comment
 Increases the karma for <thing> ( with optional comment )
-* <thing>-- # <comment>
+* thing-- # comment
 Decreases the karma for <thing> ( with optional comment )
-* karma <thing>
+* (a thing with spaces)++ # comment
+Increases the karma for <a thing with spaces> ( with optional comment )
+* karma thing
 Replies with the karma rating for <thing>
+* karma ( a thing with spaces )
+Replies with the karma rating for <a thing with spaces>
 
 =head1 SEE ALSO
 POE::Component::IRC
