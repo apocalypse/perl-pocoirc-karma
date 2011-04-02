@@ -43,6 +43,20 @@ has 'addressed' => (
 	default	=> 0,
 );
 
+=attr casesens
+
+If this is a true value, karma checking will be done in a case-sensitive way.
+
+The default is: false
+
+=cut
+
+has 'casesens' => (
+	is	=> 'rw',
+	isa	=> 'Bool',
+	default	=> 0,
+);
+
 =attr privmsg
 
 If this is a true value, all karma replies will be sent to the user in a privmsg.
@@ -278,9 +292,16 @@ sub _karma {
 sub _get_karma {
 	my( $self, $karma ) = @_;
 
+	# case-sensitive search or not?
+	my $sql = 'SELECT mode, count(mode) AS count FROM karma WHERE karma = ?';
+	if ( ! $self->casesens ) {
+		$sql .= ' COLLATE NOCASE';
+	}
+	$sql .= ' GROUP BY mode';
+
 	# Get the score from the DB
 	my $dbh = $self->_get_dbi;
-	my $sth = $dbh->prepare_cached( 'SELECT mode, count(mode) AS count FROM karma WHERE karma = ? GROUP BY mode' ) or die $dbh->errstr;
+	my $sth = $dbh->prepare_cached( $sql ) or die $dbh->errstr;
 	$sth->execute( $karma ) or die $sth->errstr;
 	my( $up, $down ) = ( 0, 0 );
 	while ( my $row = $sth->fetchrow_arrayref ) {
@@ -352,6 +373,7 @@ sub _get_dbi {
 
 	# set some SQLite tweaks
 	$dbh->do( 'PRAGMA synchronous = OFF' ) or die $dbh->errstr;
+	$dbh->do( 'PRAGMA locking_mode = EXCLUSIVE' ) or die $dbh->errstr;
 
 	return $dbh;
 }
