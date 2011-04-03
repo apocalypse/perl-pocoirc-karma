@@ -19,11 +19,30 @@ use POE::Component::IRC::Common qw( parse_user );
 # TODO do we need a botsnack thingy? bot++ bot--
 # seen in bot-basicbot-karma where a user tries to karma the bot itself and it replies with something
 
-# TODO <@Hinrik> maybe you should separate the parsing from the IRC plugin
+# TODO
+# <@Hinrik> maybe you should separate the parsing from the IRC plugin
 # <@Hinrik> so there'd be a Karma module which people could apply to any text (e.g. IRC logs)
 # <@Hinrik> and also for people like buu who use an entirely different kind of IRC plugin
 
 # TODO do we need a warn_selfkarma option so it warns the user trying to karma themselves?
+
+# TODO
+#<Getty> explain duckduckgo
+#<Getty> explain karma duckduckgo
+#<Getty> ah not implemented, ok
+
+# TODO
+#<Apocalypse> Hinrik: I was wondering - in my karma stuff I use lc( $nick ) to compare it for selfkarma
+#<Apocalypse> Should I use the l_irc thingy? What reason does it exist for? :)
+#<@Hinrik> because according to RFC1459, "foo{" if the lowercase version of and "FOO["
+#<Apocalypse> parse fail - what did you meant to say? foo{ is the uc equivalent of FOO[ ?
+#<@Hinrik> l_irc("FOO[") == "foo{"
+#<@Hinrik> not all servers use the rfc1459 casemapping though, which is why it's safest to call the function with a casemapping parameter, which you can get via $irc->isupport('CASEMAPPING');
+#<Apocalypse> why is the irc protocol that insane? ;)
+#<@Hinrik> RFC1459 says that this particular insanity is due to the Finnish keyboard layout, I believe
+#<Apocalypse> haha
+#<@Hinrik> where shift+{ gives you [ or something
+#<Apocalypse> alright thanks for the info, I'll attack it later and see what happens :)
 
 =attr addressed
 
