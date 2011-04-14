@@ -426,6 +426,8 @@ __PACKAGE__->meta->make_immutable;
 
 =pod
 
+=for stopwords karma
+
 =for Pod::Coverage PCI_register PCI_unregister S_msg S_public S_ctcp_action
 
 =head1 SYNOPSIS
