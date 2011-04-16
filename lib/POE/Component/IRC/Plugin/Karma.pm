@@ -274,7 +274,6 @@ sub _karma {
 
 	} else {
 		# get the list of karma matches
-		# TODO still needs a bit more work, see t/parsing.t
 		my @matches = ( $args{'str'} =~ /(\([^\)]+\)|\S+)(\+\+|--)\s*(\#.+)?/g );
 		if ( @matches ) {
 			my @replies;
@@ -285,6 +284,7 @@ sub _karma {
 
 				# Is it a selfkarma?
 				if ( ! $self->selfkarma and lc( $karma ) eq lc( $args{'nick'} ) ) {
+					# TODO add selfkarma penalty?
 					next;
 				} else {
 					# clean the comment

@@ -155,36 +155,68 @@ my %tests = (
 			'c' => 'nice i like++ this awesome++ # stuff',
 		},
 	],
+
+	# those may be "incorrect" at first glance but it actually is the right behavior
+	# as the comment is not for a karma, so we are "allowed" to parse it for the karma words
+	# in it, and this makes things a bit more complicated
 	'foo++ this # awesome comment++' => [
 		{
-			'TODO' => 1,
 			'k' => 'foo',
+			'm' => '++',
+			'c' => undef,
+		},
+		{
+			'k' => 'comment',
 			'm' => '++',
 			'c' => undef,
 		},
 	],
 	'(a foo)++ this # comment++' => [
 		{
-			'TODO' => 1,
 			'k' => 'a foo',
+			'm' => '++',
+			'c' => undef,
+		},
+		{
+			'k' => 'comment',
 			'm' => '++',
 			'c' => undef,
 		},
 	],
 	'foo++ this # awesome comment++ # hey' => [
 		{
-			'TODO' => 1,
 			'k' => 'foo',
 			'm' => '++',
 			'c' => undef,
 		},
+		{
+			'k' => 'comment',
+			'm' => '++',
+			'c' => 'hey',
+		},
 	],
 	'(a foo)++ this # comment++ # hola' => [
 		{
-			'TODO' => 1,
 			'k' => 'a foo',
 			'm' => '++',
 			'c' => undef,
+		},
+		{
+			'k' => 'comment',
+			'm' => '++',
+			'c' => 'hola',
+		},
+	],
+	'(a foo)++ this # comment++ # hola this++ should not work++ # another comment++' => [
+		{
+			'k' => 'a foo',
+			'm' => '++',
+			'c' => undef,
+		},
+		{
+			'k' => 'comment',
+			'm' => '++',
+			'c' => 'hola this++ should not work++ # another comment++',
 		},
 	],
 
