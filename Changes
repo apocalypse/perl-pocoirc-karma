@@ -2,6 +2,8 @@ Revision history for Perl module {{$dist->name}}
 
 {{$NEXT}}
 
+	Fix a regex bug where it wouldn't recognize some karma commands ( thanks GETTY )
+
 0.002
 	Released: 2011-04-02 22:59:11 UTC
 

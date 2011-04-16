@@ -187,6 +187,15 @@ my %tests = (
 			'c' => undef,
 		},
 	],
+
+	# Oh, a certain idiot just got a nice 60" tv and wants to brag... ;)
+	'60"++' => [
+		{
+			'k' => '60"',
+			'm' => '++',
+			'c' => undef,
+		},
+	],
 );
 
 # Count the number of tests we have

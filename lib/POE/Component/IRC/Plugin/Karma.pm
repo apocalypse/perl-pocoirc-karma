@@ -275,7 +275,7 @@ sub _karma {
 	} else {
 		# get the list of karma matches
 		# TODO still needs a bit more work, see t/parsing.t
-		my @matches = ( $args{'str'} =~ /(\([^\)]+\)|\w+)(\+\+|--)\s*(\#.+)?/g );
+		my @matches = ( $args{'str'} =~ /(\([^\)]+\)|\S+)(\+\+|--)\s*(\#.+)?/g );
 		if ( @matches ) {
 			my @replies;
 			while ( my( $karma, $op, $comment ) = splice( @matches, 0, 3 ) ) {
