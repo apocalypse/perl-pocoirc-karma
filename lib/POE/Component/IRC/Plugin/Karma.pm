@@ -251,17 +251,17 @@ sub _karma {
 	my( $self, %args ) = @_;
 
 	# many different ways to get karma...
-	if ( $args{'str'} =~ /^\s*karma\s*(.+)$/i ) {
-		# return the karma of the requested string
-		return [ $self->_get_karma( $1 ) ];
+	# high/low/last have to be checked first, otherwise, the
+	# regex for the regular karma command catches them
+	if ( $args{'str'} =~ /^\s*karmahigh\s*$/i ) {
+		# return the list of highest karma'd words
+		return [ $self->_get_karmahigh ];
 
-	# TODO are those worth it to implement?
-#	} elsif ( $args{'str'} =~ /^\s*karmahigh\s*$/i ) {
-#		# return the list of highest karma'd words
-#		return [ $self->_get_karmahigh ];
-#	} elsif ( $args{'str'} =~ /^\s*karmalow\s*$/i ) {
-#		# return the list of lowest karma'd words
-#		return [ $self->_get_karmalow ];
+	} elsif ( $args{'str'} =~ /^\s*karmalow\s*$/i ) {
+		# return the list of lowest karma'd words
+		return [ $self->_get_karmalow ];
+
+	# TODO is this worth it to implement?
 #	} elsif ( $args{'str'} =~ /^\s*karmalast\s*(.+)$/ ) {
 #		# returns the list of last karma contributors
 #		my $karma = $1;
@@ -271,6 +271,10 @@ sub _karma {
 #		$karma =~ s/\s+$//;
 #
 #		return [ $self->_get_karmalast( $karma ) ];
+
+	} elsif ( $args{'str'} =~ /^\s*karma\s*(.+)$/i ) {
+		# return the karma of the requested string
+		return [ $self->_get_karma( $1 ) ];
 
 	} else {
 		# get the list of karma matches
@@ -308,6 +312,80 @@ sub _karma {
 	}
 
 	return;
+}
+
+sub _get_karmahigh {
+	my( $self ) = @_;
+
+	return $self->_get_karma_ordered( side => 'high', limit => 5 );
+}
+
+sub _get_karmalow {
+	my( $self ) = @_;
+
+	return $self->_get_karma_ordered( side => 'low', limit => 5 );
+}
+
+sub _get_karma_ordered {
+	my( $self, %args ) = @_;
+
+	# this is a bit of a hack but accomplishes everything in one query.
+	# SUM(mode) will return the amount of positive votes, and COUNT(mode)
+	# will return the amount of *all* votes, so subtracting the sum from
+	# the count will give you the amount of negative votes.
+
+	my( $order, $title, $adjective, $emoticon, $side );
+
+	if ( lc( $args{'side'} ) eq 'low' ) {
+		$order = 'ASC';
+		$title = 'Most despised';
+		$adjective = 'negative';
+		$emoticon = ':D';
+		$side = 'low';
+	} else {
+		$order = 'DESC';
+		$title = 'Most loved';
+		$adjective = 'positive';
+		$emoticon = ':(';
+		$side = 'high';
+	}
+
+	my $sql = 'SELECT karma, SUM(mode) - (COUNT(mode) - SUM(mode)) AS total FROM karma';
+	$sql .= ' GROUP BY karma';
+	if ( ! $self->casesens ) {
+		$sql .= ' COLLATE NOCASE';
+	}
+	$sql .= ' ORDER BY total ' . $order . ' LIMIT ?';
+
+	# get the DB and pull the info
+	my $dbh = $self->_get_dbi;
+	my $sth = $dbh->prepare_cached( $sql ) or die $dbh->errstr;
+	$sth->execute( $args{'limit'} || 5 ) or die $sth->errstr;
+
+	my @karma_list;
+	while ( my $row = $sth->fetchrow_arrayref ) {
+		my( $karma, $total ) = @{$row};
+
+		# don't show negative karma in High, and positive karma in Low
+		if ( $side eq 'high' ) {
+			next if $total < 0;
+		} else {
+			next if $total >= 0;
+		}
+		
+		push( @karma_list, "'$karma' ($total)" );
+	}
+
+	$sth->finish;
+
+	my $result;
+	if ( @karma_list == 0 ) {
+		$result = 'No ' . $adjective . ' karma yet! ' . $emoticon;
+	} else {
+		$result = $title . ': ' . join( ', ', @karma_list );
+	}
+
+	return $result;
 }
 
 sub _get_karma {
