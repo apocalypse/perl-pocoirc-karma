@@ -3,6 +3,8 @@ Revision history for Perl module {{$dist->name}}
 {{$NEXT}}
 	Purge guts and use Text::Karma instead
 
+	Use Any::Moose
+
 0.003
 	Released: 2011-04-16 01:32:53 UTC
 

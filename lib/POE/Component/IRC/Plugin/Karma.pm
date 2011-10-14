@@ -2,7 +2,7 @@ package POE::Component::IRC::Plugin::Karma;
 
 # ABSTRACT: A POE::Component::IRC plugin that keeps track of karma
 
-use Moose;
+use Any::Moose;
 use DBI;
 use DBD::SQLite;
 use POE::Component::IRC::Plugin qw( PCI_EAT_NONE );
