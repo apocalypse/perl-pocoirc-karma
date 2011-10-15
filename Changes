@@ -10,6 +10,8 @@ Revision history for Perl module {{$dist->name}}
 	method configurable, and make it use NOTICE by default, which is the
 	commonly accepted default for all bot-generated output.
 
+	Added karma-seed script to populate a database from IRC logs
+
 0.003
 	Released: 2011-04-16 01:32:53 UTC
 
