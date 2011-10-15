@@ -5,6 +5,11 @@ Revision history for Perl module {{$dist->name}}
 
 	Use Any::Moose
 
+	Use pocoirc-plugin-BotCommand to handle the 'karma' command, so
+	it behaves like other plugins using BotCommand. Also made the reply
+	method configurable, and make it use NOTICE by default, which is the
+	commonly accepted default for all bot-generated output.
+
 0.003
 	Released: 2011-04-16 01:32:53 UTC
 

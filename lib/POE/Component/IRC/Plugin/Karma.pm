@@ -23,7 +23,7 @@ use Text::Karma;
 
 =attr addressed
 
-If this is a true value, the karma commands has to be sent to the bot.
+If this is a true value, the karma-affecting text has to be sent to the bot.
 
 	# addressed = true
 	<you> bot: perl++
@@ -57,7 +57,7 @@ has 'casesens' => (
 
 =attr privmsg
 
-If this is a true value, all karma replies will be sent to the user in a privmsg.
+If this is a true value, all karma replies will be sent to the user in private.
 
 The default is: false
 
@@ -67,6 +67,18 @@ has 'privmsg' => (
 	is	=> 'rw',
 	isa	=> 'Bool',
 	default	=> 0,
+);
+
+=attr replymethod
+
+The method of reply. Can be 'notice' (default) or 'privmsg'.
+
+=cut
+
+has 'replymethod' => (
+	is	=> 'rw',
+	isa	=> 'Str',
+	default => 'notice',
 );
 
 =attr selfkarma
@@ -138,7 +150,12 @@ has '_karma' => (
 sub PCI_register {
 	my ( $self, $irc ) = @_;
 
-	$irc->plugin_register( $self, 'SERVER', qw( public msg ctcp_action ) );
+	my $botcmd;
+	if (!(($botcmd) = grep { $_->isa('POE::Component::IRC::Plugin::BotCommand') } values %{ $irc->plugin_list() })) {
+		die __PACKAGE__ . " requires an active BotCommand plugin\n";
+	}
+	$botcmd->add(karma => 'Usage: karma <subject>');
+	$irc->plugin_register($self, 'SERVER', qw(public msg ctcp_action botcmd_karma));
 
 	# setup the db
 	$self->_karma(Text::Karma->new(dbh => $self->_get_dbi));
@@ -150,6 +167,25 @@ sub PCI_unregister {
 	my ( $self, $irc ) = @_;
 
 	return 1;
+}
+
+sub S_botcmd_karma {
+	my ($self, $irc)  = splice @_, 0, 2;
+	my $nick    = parse_user( ${ $_[0] } );
+	my $chan    = ${ $_[1] };
+	my $subject = ${ $_[2] };
+
+	if (!defined $subject) {
+		$irc->yield($self->replymethod, $chan, "$nick: No subject supplied!");
+	}
+	else {
+		my $karma = $self->_karma->get_karma(
+			subject => $subject,
+			case_sens => $self->casesens,
+		);
+		$irc->yield($self->replymethod, $chan, "$nick: ".$self->_get_karma($subject));
+	}
+	return PCI_EAT_NONE;
 }
 
 sub S_ctcp_action {
@@ -167,7 +203,7 @@ sub S_ctcp_action {
 	);
 
 	if ( defined $replies ) {
-		$irc->yield( 'privmsg', $channel, $nick . ': ' . $_ ) for @$replies;
+		$irc->yield($self->replymethod, $channel, $nick . ': ' . $_ ) for @$replies;
 	}
 
 	return PCI_EAT_NONE;
@@ -199,9 +235,9 @@ sub S_public {
 	if ($replies) {
 		foreach my $r ( @$replies ) {
 			if ( $self->privmsg ) {
-				$irc->yield( 'privmsg', $nick, $r );
+				$irc->yield($self->replymethod, $nick, $r );
 			} else {
-				$irc->yield( 'privmsg', $channel, $nick . ': ' . $r );
+				$irc->yield($self->replymethod, $channel, $nick . ': ' . $r );
 			}
 		}
 	}
@@ -222,7 +258,7 @@ sub S_msg {
 	);
 
 	if ( defined $replies ) {
-		$irc->yield( 'privmsg', $nick, $_ ) for @$replies;
+		$irc->yield($self->replymethod, $nick, $_ ) for @$replies;
 	}
 
 	return PCI_EAT_NONE;
@@ -251,21 +287,17 @@ sub _handle_karma {
 #		return [ $self->_get_karmalast( $karma ) ];
 
 	# many different ways to get karma...
-	if ($args{str} =~ /^\s*karma\s*(.+)$/i ) {
-		@replies = $self->_get_karma($1);
-	} else {
-		my $karmas = $self->_karma->process_karma(
-			nick	=> $args{nick},
-			who	=> $args{who},
-			where	=> $args{where},
-			str	=> $args{str},
-			self_karma	=> $self->selfkarma,
-		);
-		if ($self->replykarma) {
-			my %subjects;
-			$subjects{ $_->{subject} } = 1 for @$karmas;
-			push @replies, $self->_get_karma($_) for keys %subjects;
-		}
+	my $karmas = $self->_karma->process_karma(
+		nick		=> $args{nick},
+		who		=> $args{who},
+		where		=> $args{where},
+		str		=> $args{str},
+		self_karma	=> $self->selfkarma,
+	);
+	if ($self->replykarma) {
+		my %subjects;
+		$subjects{ $_->{subject} } = 1 for @$karmas;
+		push @replies, $self->_get_karma($_) for keys %subjects;
 	}
 
 	return \@replies;
@@ -330,6 +362,12 @@ __PACKAGE__->meta->make_immutable;
 
 =head1 SYNOPSIS
 
+To quickly get an IRC bot with this plugin up and running, you can use
+L<App::Pocoirc|App::Pocoirc>:
+
+ $ pocoirc -s irc.perl.org -j '#bots' -a BotCommand -a Karma
+
+Or use it in your code:
 	# A simple bot to showcase karma capabilities
 	use strict; use warnings;
 
