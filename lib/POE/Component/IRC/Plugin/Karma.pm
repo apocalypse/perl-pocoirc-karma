@@ -7,7 +7,7 @@ use DBI;
 use DBD::SQLite;
 use POE::Component::IRC::Plugin qw( PCI_EAT_NONE );
 use POE::Component::IRC::Common qw( parse_user );
-use Text::Karma;
+use Text::Karma 0.05; # TODO wait for next release with get_karma_high/low
 
 # TODO do we need a help system? "bot: karma" should return whatever...
 
@@ -262,25 +262,21 @@ sub _handle_karma {
 	my ($self, %args) = @_;
 
 # TODO are those worth it to implement?
-#	} elsif ( $args{'str'} =~ /^\s*karmahigh\s*$/i ) {
-#		# return the list of highest karma'd words
-#		return [ $self->_get_karmahigh ];
-#	} elsif ( $args{'str'} =~ /^\s*karmalow\s*$/i ) {
-#		# return the list of lowest karma'd words
-#		return [ $self->_get_karmalow ];
+#
 #	} elsif ( $args{'str'} =~ /^\s*karmalast\s*(.+)$/ ) {
 #		# returns the list of last karma contributors
-#		my $karma = $1;
-#
-#		# clean the karma
-#		$karma =~ s/^\s+//;
-#		$karma =~ s/\s+$//;
-#
-#		return [ $self->_get_karmalast( $karma ) ];
 
 	# many different ways to get karma...
 	my @replies;
-	if ( $args{'str'} =~ /^\s*karma\s*(.+)$/i ) {
+	if ( $args{'str'} =~ /^\s*karmahigh\s*$/i ) {
+		# return the list of highest karma'd words
+		@replies = $self->_get_karma_ordered( 'high' );
+
+	} elsif ( $args{'str'} =~ /^\s*karmalow\s*$/i ) {
+		# return the list of lowest karma'd words
+		@replies = $self->_get_karma_ordered( 'low' );
+
+	} elsif ( $args{'str'} =~ /^\s*karma\s*(.+)$/i ) {
 		# return the karma of the requested string
 		@replies = $self->_get_karma( $1 );
 
@@ -302,79 +298,36 @@ sub _handle_karma {
 	return \@replies;
 }
 
-#sub _get_karmahigh {
-#	my( $self ) = @_;
-#
-#	return $self->_get_karma_ordered( side => 'high', limit => 5 );
-#}
-#
-#sub _get_karmalow {
-#	my( $self ) = @_;
-#
-#	return $self->_get_karma_ordered( side => 'low', limit => 5 );
-#}
-#
-#sub _get_karma_ordered {
-#	my( $self, %args ) = @_;
-#
-#	# this is a bit of a hack but accomplishes everything in one query.
-#	# SUM(mode) will return the amount of positive votes, and COUNT(mode)
-#	# will return the amount of *all* votes, so subtracting the sum from
-#	# the count will give you the amount of negative votes.
-#
-#	my( $order, $title, $adjective, $emoticon, $side );
-#
-#	if ( lc( $args{'side'} ) eq 'low' ) {
-#		$order = 'ASC';
-#		$title = 'Most despised';
-#		$adjective = 'negative';
-#		$emoticon = ':D';
-#		$side = 'low';
-#	} else {
-#		$order = 'DESC';
-#		$title = 'Most loved';
-#		$adjective = 'positive';
-#		$emoticon = ':(';
-#		$side = 'high';
-#	}
-#
-#	my $sql = 'SELECT karma, SUM(mode) - (COUNT(mode) - SUM(mode)) AS total FROM karma';
-#	$sql .= ' GROUP BY karma';
-#	if ( ! $self->casesens ) {
-#		$sql .= ' COLLATE NOCASE';
-#	}
-#	$sql .= ' ORDER BY total ' . $order . ' LIMIT ?';
-#
-#	# get the DB and pull the info
-#	my $dbh = $self->_get_dbi;
-#	my $sth = $dbh->prepare_cached( $sql ) or die $dbh->errstr;
-#	$sth->execute( $args{'limit'} || 5 ) or die $sth->errstr;
-#
-#	my @karma_list;
-#	while ( my $row = $sth->fetchrow_arrayref ) {
-#		my( $karma, $total ) = @{$row};
-#
-#		# don't show negative karma in High, and positive karma in Low
-#		if ( $side eq 'high' ) {
-#			next if $total < 0;
-#		} else {
-#			next if $total >= 0;
-#		}
-#
-#		push( @karma_list, "'$karma' ($total)" );
-#	}
-#
-#	$sth->finish;
-#
-#	my $result;
-#	if ( @karma_list == 0 ) {
-#		$result = 'No ' . $adjective . ' karma yet! ' . $emoticon;
-#	} else {
-#		$result = $title . ': ' . join( ', ', @karma_list );
-#	}
-#
-#	return $result;
-#}
+sub _get_karma_ordered {
+	my( $self, $side ) = @_;
+
+	my( $title, $adjective, $emoticon, $result );
+	if ( $side eq 'low' ) {
+		$title = 'Most despised';
+		$adjective = 'negative';
+		$emoticon = ':D';
+
+		$result = $self->_karma->get_karma_low( case_sens => $self->casesens );
+	} else {
+		$title = 'Most loved';
+		$adjective = 'positive';
+		$emoticon = ':(';
+
+		$result = $self->_karma->get_karma_high( case_sens => $self->casesens );
+	}
+
+	if ( @$result ) {
+		if ( $self->extrastats ) {
+			$result = $title . ': ' . join( ', ', map { $_->{'subject'} . '(' . $_->{'score'} . ')' } @$result );
+		} else {
+			$result = $title . ': ' . join( ', ', map { $_->{'subject'} } @$result );
+		}
+	} else {
+		$result = 'No ' . $adjective . ' karma yet! ' . $emoticon;
+	}
+
+	return $result;
+}
 
 sub _get_karma {
 	my( $self, $subject ) = @_;

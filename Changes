@@ -14,6 +14,8 @@ Revision history for {{$dist->name}}
 
 	Updates to the automatically-generated files
 
+	Implement the karmahigh and karmalow commands ( thanks Treeki! )
+
 0.003	2011-04-16 01:32:53 UTC
 
 	Fix a regex bug where it wouldn't recognize some karma commands ( thanks GETTY )
