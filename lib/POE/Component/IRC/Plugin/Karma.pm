@@ -2,27 +2,17 @@ package POE::Component::IRC::Plugin::Karma;
 
 # ABSTRACT: A POE::Component::IRC plugin that keeps track of karma
 
-use Moose;
+use Any::Moose;
 use DBI;
 use DBD::SQLite;
 use POE::Component::IRC::Plugin qw( PCI_EAT_NONE );
 use POE::Component::IRC::Common qw( parse_user );
-
-# TODO split the datastore stuff into pocoirc-plugin-datastore
-# so it can be used by other plugins that need to store data
-# then we can code plugin-seen and plugin-awaymsg stuff and have it use the datastore
-# make it as braindead ez to use as the bot-basicbot system of saving data :)
-# Getty wants me to have it use dbic which would make it even more awesome...
+use Text::Karma;
 
 # TODO do we need a help system? "bot: karma" should return whatever...
 
 # TODO do we need a botsnack thingy? bot++ bot--
 # seen in bot-basicbot-karma where a user tries to karma the bot itself and it replies with something
-
-# TODO
-# <@Hinrik> maybe you should separate the parsing from the IRC plugin
-# <@Hinrik> so there'd be a Karma module which people could apply to any text (e.g. IRC logs)
-# <@Hinrik> and also for people like buu who use an entirely different kind of IRC plugin
 
 # TODO do we need a warn_selfkarma option so it warns the user trying to karma themselves?
 
@@ -31,22 +21,9 @@ use POE::Component::IRC::Common qw( parse_user );
 #<Getty> explain karma duckduckgo
 #<Getty> ah not implemented, ok
 
-# TODO
-#<Apocalypse> Hinrik: I was wondering - in my karma stuff I use lc( $nick ) to compare it for selfkarma
-#<Apocalypse> Should I use the l_irc thingy? What reason does it exist for? :)
-#<@Hinrik> because according to RFC1459, "foo{" if the lowercase version of and "FOO["
-#<Apocalypse> parse fail - what did you meant to say? foo{ is the uc equivalent of FOO[ ?
-#<@Hinrik> l_irc("FOO[") == "foo{"
-#<@Hinrik> not all servers use the rfc1459 casemapping though, which is why it's safest to call the function with a casemapping parameter, which you can get via $irc->isupport('CASEMAPPING');
-#<Apocalypse> why is the irc protocol that insane? ;)
-#<@Hinrik> RFC1459 says that this particular insanity is due to the Finnish keyboard layout, I believe
-#<Apocalypse> haha
-#<@Hinrik> where shift+{ gives you [ or something
-#<Apocalypse> alright thanks for the info, I'll attack it later and see what happens :)
-
 =attr addressed
 
-If this is a true value, the karma commands has to be sent to the bot.
+If this is a true value, the karma-affecting text has to be sent to the bot.
 
 	# addressed = true
 	<you> bot: perl++
@@ -80,7 +57,7 @@ has 'casesens' => (
 
 =attr privmsg
 
-If this is a true value, all karma replies will be sent to the user in a privmsg.
+If this is a true value, all karma replies will be sent to the user in private.
 
 The default is: false
 
@@ -90,6 +67,18 @@ has 'privmsg' => (
 	is	=> 'rw',
 	isa	=> 'Bool',
 	default	=> 0,
+);
+
+=attr replymethod
+
+The method of reply. Can be 'notice' (default) or 'privmsg'.
+
+=cut
+
+has 'replymethod' => (
+	is	=> 'rw',
+	isa	=> 'Str',
+	default => 'notice',
 );
 
 =attr selfkarma
@@ -153,13 +142,23 @@ has 'sqlite' => (
 	default	=> 'karma_stats.db',
 );
 
+has '_karma' => (
+	is	=> 'rw',
+	isa	=> 'Text::Karma',
+);
+
 sub PCI_register {
 	my ( $self, $irc ) = @_;
 
-	$irc->plugin_register( $self, 'SERVER', qw( public msg ctcp_action ) );
+	my $botcmd;
+	if (!(($botcmd) = grep { $_->isa('POE::Component::IRC::Plugin::BotCommand') } values %{ $irc->plugin_list() })) {
+		die __PACKAGE__ . " requires an active BotCommand plugin\n";
+	}
+	$botcmd->add(karma => 'Usage: karma <subject>');
+	$irc->plugin_register($self, 'SERVER', qw(public msg ctcp_action botcmd_karma));
 
 	# setup the db
-	$self->_setup_dbi( $self->_get_dbi );
+	$self->_karma(Text::Karma->new(dbh => $self->_get_dbi));
 
 	return 1;
 }
@@ -170,22 +169,41 @@ sub PCI_unregister {
 	return 1;
 }
 
+sub S_botcmd_karma {
+	my ($self, $irc)  = splice @_, 0, 2;
+	my $nick    = parse_user( ${ $_[0] } );
+	my $chan    = ${ $_[1] };
+	my $subject = ${ $_[2] };
+
+	if (!defined $subject) {
+		$irc->yield($self->replymethod, $chan, "$nick: No subject supplied!");
+	}
+	else {
+		my $karma = $self->_karma->get_karma(
+			subject => $subject,
+			case_sens => $self->casesens,
+		);
+		$irc->yield($self->replymethod, $chan, "$nick: ".$self->_get_karma($subject));
+	}
+	return PCI_EAT_NONE;
+}
+
 sub S_ctcp_action {
 	my ( $self, $irc ) = splice @_, 0 , 2;
-	my ( $nick, $user, $host ) = parse_user( ${ $_[0] } );
+	my $who = ${ $_[0] };
+	my $nick = parse_user($who);
 	my $channel = ${ $_[1] }->[0];
 	my $msg = ${ $_[2] };
 
-	my $reply = $self->_karma(
+	my $replies = $self->_handle_karma(
 		nick	=> $nick,
-		user	=> $user,
-		host	=> $host,
+		who	=> $who,
 		where	=> $channel,
-		str	=> ${ $_[2] },
+		str	=> $msg,
 	);
 
-	if ( defined $reply ) {
-		$irc->yield( 'privmsg', $channel, $nick . ': ' . $_ ) for @$reply;
+	if ( defined $replies ) {
+		$irc->yield($self->replymethod, $channel, $nick . ': ' . $_ ) for @$replies;
 	}
 
 	return PCI_EAT_NONE;
@@ -193,7 +211,8 @@ sub S_ctcp_action {
 
 sub S_public {
 	my ( $self, $irc ) = splice @_, 0 , 2;
-	my ( $nick, $user, $host ) = parse_user( ${ $_[0] } );
+	my $who = ${ $_[0] };
+	my $nick = parse_user($who);
 	my $channel = ${ $_[1] }->[0];
 	my $msg = ${ $_[2] };
 	my $string;
@@ -205,22 +224,20 @@ sub S_public {
 		$string = $msg;
 	}
 
-	if ( defined $string ) {
-		my $reply = $self->_karma(
-			nick	=> $nick,
-			user	=> $user,
-			host	=> $host,
-			where	=> $channel,
-			str	=> $string,
-		);
+	return PCI_EAT_NONE if !defined $string;
+	my $replies = $self->_handle_karma(
+		nick	=> $nick,
+		who	=> $who,
+		where	=> $channel,
+		str	=> $string,
+	);
 
-		if ( defined $reply ) {
-			foreach my $r ( @$reply ) {
-				if ( $self->privmsg ) {
-					$irc->yield( 'privmsg', $nick, $r );
-				} else {
-					$irc->yield( 'privmsg', $channel, $nick . ': ' . $r );
-				}
+	if ($replies) {
+		foreach my $r ( @$replies ) {
+			if ( $self->privmsg ) {
+				$irc->yield($self->replymethod, $nick, $r );
+			} else {
+				$irc->yield($self->replymethod, $channel, $nick . ': ' . $r );
 			}
 		}
 	}
@@ -230,38 +247,33 @@ sub S_public {
 
 sub S_msg {
 	my ( $self, $irc ) = splice @_, 0 , 2;
-	my ( $nick, $user, $host ) = parse_user( ${ $_[0] } );
+	my $who = ${ $_[0] };
+	my $nick = parse_user($who);
+	my $msg = ${ $_[2] };
 
-	my $reply = $self->_karma(
+	my $replies = $self->_handle_karma(
 		nick	=> $nick,
-		user	=> $user,
-		host	=> $host,
 		where	=> 'privmsg',
-		str	=> ${ $_[2] },
+		str	=> $msg,
 	);
 
-	if ( defined $reply ) {
-		$irc->yield( 'privmsg', $nick, $_ ) for @$reply;
+	if ( defined $replies ) {
+		$irc->yield($self->replymethod, $nick, $_ ) for @$replies;
 	}
 
 	return PCI_EAT_NONE;
 }
 
-sub _karma {
-	my( $self, %args ) = @_;
+sub _handle_karma {
+	my ($self, %args) = @_;
 
-	# many different ways to get karma...
-	# high/low/last have to be checked first, otherwise, the
-	# regex for the regular karma command catches them
-	if ( $args{'str'} =~ /^\s*karmahigh\s*$/i ) {
-		# return the list of highest karma'd words
-		return [ $self->_get_karmahigh ];
-
-	} elsif ( $args{'str'} =~ /^\s*karmalow\s*$/i ) {
-		# return the list of lowest karma'd words
-		return [ $self->_get_karmalow ];
-
-	# TODO is this worth it to implement?
+# TODO are those worth it to implement?
+#	} elsif ( $args{'str'} =~ /^\s*karmahigh\s*$/i ) {
+#		# return the list of highest karma'd words
+#		return [ $self->_get_karmahigh ];
+#	} elsif ( $args{'str'} =~ /^\s*karmalow\s*$/i ) {
+#		# return the list of lowest karma'd words
+#		return [ $self->_get_karmalow ];
 #	} elsif ( $args{'str'} =~ /^\s*karmalast\s*(.+)$/ ) {
 #		# returns the list of last karma contributors
 #		my $karma = $1;
@@ -272,197 +284,137 @@ sub _karma {
 #
 #		return [ $self->_get_karmalast( $karma ) ];
 
-	} elsif ( $args{'str'} =~ /^\s*karma\s*(.+)$/i ) {
+	# many different ways to get karma...
+	my @replies;
+	if ( $args{'str'} =~ /^\s*karma\s*(.+)$/i ) {
 		# return the karma of the requested string
-		return [ $self->_get_karma( $1 ) ];
+		@replies = $self->_get_karma( $1 );
 
 	} else {
-		# get the list of karma matches
-		my @matches = ( $args{'str'} =~ /(\([^\)]+\)|\S+)(\+\+|--)\s*(\#.+)?/g );
-		if ( @matches ) {
-			my @replies;
-			while ( my( $karma, $op, $comment ) = splice( @matches, 0, 3 ) ) {
-				# clean the karma of spaces and () as we had to capture them
-				$karma =~ s/^[\s\(]+//;
-				$karma =~ s/[\s\)]+$//;
-
-				# Is it a selfkarma?
-				if ( ! $self->selfkarma and lc( $karma ) eq lc( $args{'nick'} ) ) {
-					# TODO add selfkarma penalty?
-					next;
-				} else {
-					# clean the comment
-					$comment =~ s/^\s*\#\s*// if defined $comment;
-
-					$self->_add_karma(
-						karma	=> $karma,
-						op	=> $op,
-						comment	=> $comment,
-						%args,
-					);
-
-					if ( $self->replykarma ) {
-						push( @replies, $self->_get_karma( $karma ) );
-					}
-				}
-			}
-
-			return \@replies;
+		my $karmas = $self->_karma->process_karma(
+			nick		=> $args{nick},
+			who		=> $args{who},
+			where		=> $args{where},
+			str		=> $args{str},
+			self_karma	=> $self->selfkarma,
+		);
+		if ($self->replykarma) {
+			my %subjects;
+			$subjects{ $_->{subject} } = 1 for @$karmas;
+			push @replies, $self->_get_karma($_) for keys %subjects;
 		}
 	}
 
-	return;
+	return \@replies;
 }
 
-sub _get_karmahigh {
-	my( $self ) = @_;
-
-	return $self->_get_karma_ordered( side => 'high', limit => 5 );
-}
-
-sub _get_karmalow {
-	my( $self ) = @_;
-
-	return $self->_get_karma_ordered( side => 'low', limit => 5 );
-}
-
-sub _get_karma_ordered {
-	my( $self, %args ) = @_;
-
-	# this is a bit of a hack but accomplishes everything in one query.
-	# SUM(mode) will return the amount of positive votes, and COUNT(mode)
-	# will return the amount of *all* votes, so subtracting the sum from
-	# the count will give you the amount of negative votes.
-
-	my( $order, $title, $adjective, $emoticon, $side );
-
-	if ( lc( $args{'side'} ) eq 'low' ) {
-		$order = 'ASC';
-		$title = 'Most despised';
-		$adjective = 'negative';
-		$emoticon = ':D';
-		$side = 'low';
-	} else {
-		$order = 'DESC';
-		$title = 'Most loved';
-		$adjective = 'positive';
-		$emoticon = ':(';
-		$side = 'high';
-	}
-
-	my $sql = 'SELECT karma, SUM(mode) - (COUNT(mode) - SUM(mode)) AS total FROM karma';
-	$sql .= ' GROUP BY karma';
-	if ( ! $self->casesens ) {
-		$sql .= ' COLLATE NOCASE';
-	}
-	$sql .= ' ORDER BY total ' . $order . ' LIMIT ?';
-
-	# get the DB and pull the info
-	my $dbh = $self->_get_dbi;
-	my $sth = $dbh->prepare_cached( $sql ) or die $dbh->errstr;
-	$sth->execute( $args{'limit'} || 5 ) or die $sth->errstr;
-
-	my @karma_list;
-	while ( my $row = $sth->fetchrow_arrayref ) {
-		my( $karma, $total ) = @{$row};
-
-		# don't show negative karma in High, and positive karma in Low
-		if ( $side eq 'high' ) {
-			next if $total < 0;
-		} else {
-			next if $total >= 0;
-		}
-		
-		push( @karma_list, "'$karma' ($total)" );
-	}
-
-	$sth->finish;
-
-	my $result;
-	if ( @karma_list == 0 ) {
-		$result = 'No ' . $adjective . ' karma yet! ' . $emoticon;
-	} else {
-		$result = $title . ': ' . join( ', ', @karma_list );
-	}
-
-	return $result;
-}
+#sub _get_karmahigh {
+#	my( $self ) = @_;
+#
+#	return $self->_get_karma_ordered( side => 'high', limit => 5 );
+#}
+#
+#sub _get_karmalow {
+#	my( $self ) = @_;
+#
+#	return $self->_get_karma_ordered( side => 'low', limit => 5 );
+#}
+#
+#sub _get_karma_ordered {
+#	my( $self, %args ) = @_;
+#
+#	# this is a bit of a hack but accomplishes everything in one query.
+#	# SUM(mode) will return the amount of positive votes, and COUNT(mode)
+#	# will return the amount of *all* votes, so subtracting the sum from
+#	# the count will give you the amount of negative votes.
+#
+#	my( $order, $title, $adjective, $emoticon, $side );
+#
+#	if ( lc( $args{'side'} ) eq 'low' ) {
+#		$order = 'ASC';
+#		$title = 'Most despised';
+#		$adjective = 'negative';
+#		$emoticon = ':D';
+#		$side = 'low';
+#	} else {
+#		$order = 'DESC';
+#		$title = 'Most loved';
+#		$adjective = 'positive';
+#		$emoticon = ':(';
+#		$side = 'high';
+#	}
+#
+#	my $sql = 'SELECT karma, SUM(mode) - (COUNT(mode) - SUM(mode)) AS total FROM karma';
+#	$sql .= ' GROUP BY karma';
+#	if ( ! $self->casesens ) {
+#		$sql .= ' COLLATE NOCASE';
+#	}
+#	$sql .= ' ORDER BY total ' . $order . ' LIMIT ?';
+#
+#	# get the DB and pull the info
+#	my $dbh = $self->_get_dbi;
+#	my $sth = $dbh->prepare_cached( $sql ) or die $dbh->errstr;
+#	$sth->execute( $args{'limit'} || 5 ) or die $sth->errstr;
+#
+#	my @karma_list;
+#	while ( my $row = $sth->fetchrow_arrayref ) {
+#		my( $karma, $total ) = @{$row};
+#
+#		# don't show negative karma in High, and positive karma in Low
+#		if ( $side eq 'high' ) {
+#			next if $total < 0;
+#		} else {
+#			next if $total >= 0;
+#		}
+#		
+#		push( @karma_list, "'$karma' ($total)" );
+#	}
+#
+#	$sth->finish;
+#
+#	my $result;
+#	if ( @karma_list == 0 ) {
+#		$result = 'No ' . $adjective . ' karma yet! ' . $emoticon;
+#	} else {
+#		$result = $title . ': ' . join( ', ', @karma_list );
+#	}
+#
+#	return $result;
+#}
 
 sub _get_karma {
-	my( $self, $karma ) = @_;
+	my( $self, $subject ) = @_;
 
-	# case-sensitive search or not?
-	my $sql = 'SELECT mode, count(mode) AS count FROM karma WHERE karma = ?';
-	if ( ! $self->casesens ) {
-		$sql .= ' COLLATE NOCASE';
-	}
-	$sql .= ' GROUP BY mode';
-
-	# Get the score from the DB
-	my $dbh = $self->_get_dbi;
-	my $sth = $dbh->prepare_cached( $sql ) or die $dbh->errstr;
-	$sth->execute( $karma ) or die $sth->errstr;
-	my( $up, $down ) = ( 0, 0 );
-	while ( my $row = $sth->fetchrow_arrayref ) {
-		if ( $row->[0] == 1 ) {
-			$up = $row->[1];
-		} else {
-			$down = $row->[1];
-		}
-	}
-	$sth->finish;
-
-	my $score = $up - $down;
-	$score = undef if ( $up == 0 and $down == 0 );
+	my $karma = $self->_karma->get_karma(
+		subject => $subject,
+		case_sens => $self->casesens,
+	);
 
 	my $result;
-	if ( ! defined $score ) {
-		$result = "'$karma' has no karma";
+	if ( ! defined $karma ) {
+		$result = "'$subject' has no karma";
 	} else {
-		if ( $score == 0 ) {
-			$result = "'$karma' has neutral karma";
+		if ( $karma->{score} == 0 ) {
+			$result = "'$subject' has neutral karma";
 			if ( $self->extrastats ) {
-				my $total = $up + $down;
+				my $total = $karma->{up} + $karma->{down};
 				$result .= " [ $total votes ]";
 			}
 		} else {
-			$result = "'$karma' has karma of $score";
+			$result = "'$subject' has karma of $karma->{score}";
 			if ( $self->extrastats ) {
-				if ( $up and $down ) {
-					$result .= " [ $up ++ and $down -- votes ]";
-				} elsif ( $up ) {
-					$result .= " [ $up ++ votes ]";
+				if ( $karma->{up} and $karma->{down} ) {
+					$result .= " [ $karma->{up} ++ and $karma->{down} -- votes ]";
+				} elsif ( $karma->{up} ) {
+					$result .= " [ $karma->{up} ++ votes ]";
 				} else {
-					$result .= " [ $down -- votes ]";
+					$result .= " [ $karma->{down} -- votes ]";
 				}
 			}
 		}
 	}
 
 	return $result;
-}
-
-sub _add_karma {
-	my( $self, %args ) = @_;
-
-	# munge the nick back into original format
-	$args{'who'} = $args{'nick'} . '!' . $args{'user'} . '@' . $args{'host'};
-
-	# insert it into the DB!
-	my $dbh = $self->_get_dbi;
-	my $sth = $dbh->prepare_cached( 'INSERT INTO karma ( who, "where", timestamp, karma, mode, comment, said ) VALUES ( ?, ?, ?, ?, ?, ?, ? )' ) or die $dbh->errstr;
-	$sth->execute(
-		$args{'who'},
-		$args{'where'},
-		scalar time,
-		$args{'karma'},
-		( $args{'op'} eq '++' ? 1 : 0 ),
-		$args{'comment'},
-		$args{'str'},
-	) or die $sth->errstr;
-	$sth->finish;
-
-	return;
 }
 
 sub _get_dbi {
@@ -477,27 +429,6 @@ sub _get_dbi {
 	return $dbh;
 }
 
-sub _setup_dbi {
-	my( $self, $dbh ) = @_;
-
-	# create the table itself
-	$dbh->do( 'CREATE TABLE IF NOT EXISTS karma ( ' .
-		'who TEXT NOT NULL, ' .			# who made the karma
-		'"where" TEXT NOT NULL, ' .		# privmsg or in chan
-		'timestamp INTEGER NOT NULL, ' .	# unix timestamp of karma
-		'karma TEXT NOT NULL, ' .		# the stuff being karma'd
-		'mode BOOL NOT NULL, ' .		# 1 if it was a ++, 0 if it was a --
-		'comment TEXT, ' .			# the comment given with the karma ( optional )
-		'said TEXT NOT NULL ' .			# the full text the user said
-	')' ) or die $dbh->errstr;
-
-	# create the indexes to speed up searching
-	$dbh->do( 'CREATE INDEX IF NOT EXISTS karma_karma ON karma ( karma )' ) or die $dbh->errstr;
-	$dbh->do( 'CREATE INDEX IF NOT EXISTS karma_mode ON karma ( mode )' ) or die $dbh->errstr;
-
-	return;
-}
-
 no Moose;
 __PACKAGE__->meta->make_immutable;
 1;
@@ -510,6 +441,12 @@ __PACKAGE__->meta->make_immutable;
 
 =head1 SYNOPSIS
 
+To quickly get an IRC bot with this plugin up and running, you can use
+L<App::Pocoirc|App::Pocoirc>:
+
+ $ pocoirc -s irc.perl.org -j '#bots' -a BotCommand -a Karma
+
+Or use it in your code:
 	# A simple bot to showcase karma capabilities
 	use strict; use warnings;
 
