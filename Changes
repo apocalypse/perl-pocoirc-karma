@@ -1,29 +1,28 @@
-Revision history for Perl module {{$dist->name}}
+Revision history for {{$dist->name}}
 
 {{$NEXT}}
-	Purge guts and use Text::Karma instead
+	Purge guts and use Text::Karma instead, thanks HINRIK!
 
-	Use Any::Moose
+	Use Any::Moose, thanks HINRIK!
 
 	Use pocoirc-plugin-BotCommand to handle the 'karma' command, so
 	it behaves like other plugins using BotCommand. Also made the reply
 	method configurable, and make it use NOTICE by default, which is the
-	commonly accepted default for all bot-generated output.
+	commonly accepted default for all bot-generated output, thanks HINRIK!
 
-	Added karma-seed script to populate a database from IRC logs
+	Added karma-seed script to populate a database from IRC logs, thanks HINRIK!
 
-0.003
-	Released: 2011-04-16 01:32:53 UTC
+	Updates to the automatically-generated files
+
+0.003	2011-04-16 01:32:53 UTC
 
 	Fix a regex bug where it wouldn't recognize some karma commands ( thanks GETTY )
 
-0.002
-	Released: 2011-04-02 22:59:11 UTC
+0.002	2011-04-02 22:59:11 UTC
 
 	Add 'casesens' option to control case-sensitive searching
 	Tweak some sqlite pragma for performance
 
-0.001
-	Released: 2011-04-02 18:56:02 UTC
+0.001	2011-04-02 18:56:02 UTC
 
 	initial release
