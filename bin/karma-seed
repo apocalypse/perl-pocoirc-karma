@@ -1,5 +1,8 @@
 #!/usr/bin/env perl
 
+# PODNAME: karma-seed
+# ABSTRACT: Populates a L<Text::Karma|Text::Karma> database from IRC logs.
+
 use strict;
 use warnings;
 use DBI;
@@ -94,11 +97,11 @@ LINE: while (my $line = <STDIN>) {
 
 $dbh->commit();
 
-=head1 NAME
+1;
 
-karma-seed - Populates a L<Text::Karma|Text::Karma> database from IRC logs.
+=pod
 
-=head1 SYNOPSIS
+=head1 DESCRIPTION
 
 B<karma-seed> <options>
 
@@ -136,15 +139,10 @@ from L<IRC::Utils|IRC::Utils>. The default is B<'rfc1459'>. You usually
 don't have to change this. Consult that package's documentation for more
 information.
 
-=head1 AUTHOR
+=head1 ORIGINAL AUTHOR
 
 Hinrik E<Ouml>rn SigurE<eth>sson, hinrik.sig@gmail.com
 
-=head1 LICENSE AND COPYRIGHT
-
 Copyright 2011 Hinrik E<Ouml>rn SigurE<eth>sson
-
-This program is free software, you can redistribute it and/or modify
-it under the same terms as Perl itself.
 
 =cut

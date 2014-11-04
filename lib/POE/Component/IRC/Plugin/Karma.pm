@@ -164,8 +164,6 @@ sub PCI_register {
 }
 
 sub PCI_unregister {
-	my ( $self, $irc ) = @_;
-
 	return 1;
 }
 
@@ -179,10 +177,6 @@ sub S_botcmd_karma {
 		$irc->yield($self->replymethod, $chan, "$nick: No subject supplied!");
 	}
 	else {
-		my $karma = $self->_karma->get_karma(
-			subject => $subject,
-			case_sens => $self->casesens,
-		);
 		$irc->yield($self->replymethod, $chan, "$nick: ".$self->_get_karma($subject));
 	}
 	return PCI_EAT_NONE;
@@ -366,7 +360,7 @@ sub _handle_karma {
 #		} else {
 #			next if $total >= 0;
 #		}
-#		
+#
 #		push( @karma_list, "'$karma' ($total)" );
 #	}
 #
@@ -437,16 +431,10 @@ __PACKAGE__->meta->make_immutable;
 
 =for stopwords karma
 
-=for Pod::Coverage PCI_register PCI_unregister S_msg S_public S_ctcp_action
+=for Pod::Coverage PCI_register PCI_unregister S_msg S_public S_ctcp_action S_botcmd_karma
 
 =head1 SYNOPSIS
 
-To quickly get an IRC bot with this plugin up and running, you can use
-L<App::Pocoirc|App::Pocoirc>:
-
- $ pocoirc -s irc.perl.org -j '#bots' -a BotCommand -a Karma
-
-Or use it in your code:
 	# A simple bot to showcase karma capabilities
 	use strict; use warnings;
 
@@ -471,6 +459,10 @@ Or use it in your code:
 This plugin keeps track of karma ( perl++ or perl-- ) said on IRC and provides an interface to retrieve statistics.
 
 The bot will watch for karma in channel messages, privmsgs and ctcp actions.
+
+To quickly get an IRC bot with this plugin up and running, you can use L<App::Pocoirc|App::Pocoirc>:
+
+	$ pocoirc -s irc.perl.org -j '#bots' -a BotCommand -a Karma
 
 =head2 IRC USAGE
 
